@@ -1,0 +1,24 @@
+[project]
+name = "goit-pythonweb-hw-08"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Bazhynova Iryna"}
+]
+readme = "README.md"
+requires-python = "3.10"
+dependencies = [
+    "fastapi = *",
+    "sqlalchemy = *",
+    "pydantic-settings = *",
+    "alembic = *",
+    "asyncpg = *",
+    "greenlet (>=3.1.1,<4.0.0)",
+    "uvicorn = *",
+    "pydantic[email] (>=2.10.6,<3.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
