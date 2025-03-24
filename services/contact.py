@@ -2,7 +2,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
-from models.contacts import Contact
+from models.models import Contact
 from repository.contacts import ContactRepository
 from schemas.contact import ContactCreate, ContactUpdate, ContactResponse
 

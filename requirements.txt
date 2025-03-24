@@ -6,3 +6,10 @@ asyncpg
 greenlet
 uvicorn
 pydantic[email]
+python-jose 
+passlib[bcrypt] 
+pydantic-settings 
+fastapi-mail 
+slowapi 
+cloudinary 
+]

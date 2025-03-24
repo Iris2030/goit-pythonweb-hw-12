@@ -3,7 +3,7 @@ from typing import List, Optional
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.contacts import Contact
+from models.models import Contact
 from schemas.contact import ContactCreate, ContactUpdate
 
 
