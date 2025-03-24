@@ -16,9 +16,15 @@ from database.db import get_db
 
 limiter = Limiter(key_func=get_remote_address)
 
+app = FastAPI()
+
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 contacts_router =  APIRouter(prefix="/contacts", tags=["contacts"])
 users_router = APIRouter(prefix="/users", tags=["users"])
+
+app.include_router(auth_router)
+app.include_router(contacts_router)
+app.include_router(users_router)
 
 @users_router.get("/me", response_model=UserBase)
 @limiter.limit("5/minute")
