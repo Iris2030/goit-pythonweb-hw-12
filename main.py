@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from jose import JWTError
 
 from conf.config import settings
 from schemas.contact import ContactCreate, ContactResponse
@@ -64,6 +65,7 @@ async def register_user(user_data: UserCreate, request: Request, background_task
             status_code=status.HTTP_409_CONFLICT,
             detail="Користувач з таким іменем вже існує",
         )
+    
     user_data.password = Hash().get_password_hash(user_data.password)
     new_user = await user_service.create_user(user_data)
     background_tasks.add_task(
@@ -98,6 +100,34 @@ async def confirmed_email(token: str, db: Session = Depends(get_db)):
         return {"message": "Ваша електронна пошта вже підтверджена"}
     await user_service.confirmed_email(email)
     return {"message": "Електронну пошту підтверджено"}
+
+@auth_router.post("/verify-email/{token}")
+async def verify_email(token: str, db: Session = Depends(get_db)):
+    try:
+        email = await get_email_from_token(token)   
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Невірний токен для перевірки електронної пошти"
+        )
+
+    user = await UserService(db).get_user_by_email(email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    if user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is already verified"
+        )
+
+    user.is_verified = True   
+    db.commit()
+    db.refresh(user)
+    return {"message": "Email successfully verified"}
 
 @contacts_router.post("/contacts/", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
 async def create_contact(contact: ContactCreate, db: AsyncSession = Depends(get_db)):

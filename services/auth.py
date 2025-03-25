@@ -10,9 +10,9 @@ from fastapi.security import (
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
 
-from src.database.db import get_db
-from src.conf.config import settings
-from src.services.users import UserService
+from database.db import get_db
+from conf.config import settings
+from services.users import UserService
 
 
 class Hash:
@@ -79,3 +79,10 @@ async def get_email_from_token(token: str):
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Невірний токен для перевірки електронної пошти",
         )
+    
+def create_email_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(UTC) + timedelta(days=7)
+    to_encode.update({"iat": datetime.now(UTC), "exp": expire})
+    token = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+    return token
