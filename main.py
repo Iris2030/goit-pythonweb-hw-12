@@ -1,4 +1,14 @@
-from fastapi import APIRouter, FastAPI, Depends, Request,  HTTPException, status, Request, UploadFile, File, BackgroundTasks
+"""
+FastAPI application entry point.
+
+This module initializes the FastAPI app and includes routes for user authentication, 
+profile management, and contact management. It also configures rate limiting for requests.
+
+Functions:
+    - rate_limit_handler: Handles rate limit exceeded errors with a custom message.
+"""
+
+from fastapi import APIRouter, FastAPI, Depends, Request, HTTPException, status, UploadFile, File, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from typing import List
@@ -20,7 +30,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
-contacts_router =  APIRouter(prefix="/contacts", tags=["contacts"])
+contacts_router = APIRouter(prefix="/contacts", tags=["contacts"])
 users_router = APIRouter(prefix="/users", tags=["users"])
 
 app.include_router(auth_router)
@@ -30,6 +40,16 @@ app.include_router(users_router)
 @users_router.get("/me", response_model=UserBase)
 @limiter.limit("5/minute")
 async def me(request: Request, user: UserBase = Depends(get_current_user)):
+    """
+    Retrieve the current authenticated user.
+
+    Args:
+        request (Request): The FastAPI request object.
+        user (UserBase, optional): The current authenticated user, retrieved from the `get_current_user` dependency.
+
+    Returns:
+        UserBase: The current user's details.
+    """
     return user
 
 
@@ -39,6 +59,17 @@ async def update_avatar_user(
     user: UserBase = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Update the user's avatar.
+
+    Args:
+        file (UploadFile): The avatar image file.
+        user (UserBase): The current authenticated user.
+        db (AsyncSession): The database session to interact with the database.
+
+    Returns:
+        UserBase: The updated user with the new avatar URL.
+    """
     avatar_url = UploadFileService(
         settings.CLD_NAME, settings.CLD_API_KEY, settings.CLD_API_SECRET
     ).upload_file(file, user.username)
@@ -50,6 +81,21 @@ async def update_avatar_user(
 
 @auth_router.post("/register/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(user_data: UserCreate, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """
+    Register a new user in the system.
+
+    Args:
+        user_data (UserCreate): The data for the user to be registered.
+        request (Request): The FastAPI request object.
+        background_tasks (BackgroundTasks): A background task manager for sending confirmation emails.
+        db (AsyncSession): The database session to interact with the database.
+
+    Returns:
+        UserResponse: The details of the newly created user.
+    
+    Raises:
+        HTTPException: If the email or username is already taken.
+    """
     user_service = UserService(db)
 
     email_user = await user_service.get_user_by_email(user_data.email)
@@ -75,6 +121,19 @@ async def register_user(user_data: UserCreate, request: Request, background_task
 
 @auth_router.post("/login", response_model=Token)
 async def login_user(body: UserLogin, db: Session = Depends(get_db)):
+    """
+    Log a user into the system and return an access token.
+
+    Args:
+        body (UserLogin): The login credentials (email and password).
+        db (Session): The database session to query user data.
+
+    Returns:
+        Token: The access token for the user.
+
+    Raises:
+        HTTPException: If the login credentials are incorrect.
+    """
     user_service = UserService(db)
     user = await user_service.get_user_by_email(body.email)
     if not user or not Hash().verify_password(body.password, user.hashed_password):
@@ -89,6 +148,19 @@ async def login_user(body: UserLogin, db: Session = Depends(get_db)):
 
 @auth_router.get("/confirmed_email/{token}")
 async def confirmed_email(token: str, db: Session = Depends(get_db)):
+    """
+    Confirm a user's email address by verifying the token.
+
+    Args:
+        token (str): The token used to confirm the email address.
+        db (Session): The database session to interact with the database.
+
+    Returns:
+        dict: A message indicating the result of the email confirmation.
+    
+    Raises:
+        HTTPException: If the token is invalid or the user does not exist.
+    """
     email = await get_email_from_token(token)
     user_service = UserService(db)
     user = await user_service.get_user_by_email(email)
@@ -103,6 +175,19 @@ async def confirmed_email(token: str, db: Session = Depends(get_db)):
 
 @auth_router.post("/verify-email/{token}")
 async def verify_email(token: str, db: Session = Depends(get_db)):
+    """
+    Verify the user's email using the provided token.
+
+    Args:
+        token (str): The token used for email verification.
+        db (Session): The database session to interact with the database.
+
+    Returns:
+        dict: A message indicating the result of the email verification.
+    
+    Raises:
+        HTTPException: If the token is invalid, the user is not found, or the email is already verified.
+    """
     try:
         email = await get_email_from_token(token)   
     except JWTError:
@@ -131,31 +216,92 @@ async def verify_email(token: str, db: Session = Depends(get_db)):
 
 @contacts_router.post("/contacts/", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
 async def create_contact(contact: ContactCreate, db: AsyncSession = Depends(get_db)):
+    """
+    Create a new contact.
+
+    Args:
+        contact (ContactCreate): The contact data to be created.
+        db (AsyncSession): The database session to interact with the database.
+
+    Returns:
+        ContactResponse: The details of the created contact.
+    """
     contact_service = ContactService(db)
     return await contact_service.create_contact(contact)
 
 @contacts_router.get("/contacts/", response_model=List[ContactResponse])
 async def get_contacts(skip: int = 0, limit: int = 10, db: AsyncSession = Depends(get_db)):
+    """
+    Retrieve a list of contacts.
+
+    Args:
+        skip (int): The number of records to skip (for pagination).
+        limit (int): The maximum number of records to return (for pagination).
+        db (AsyncSession): The database session to interact with the database.
+
+    Returns:
+        List[ContactResponse]: A list of contact details.
+    """
     contact_service = ContactService(db)
     return await contact_service.get_contacts(skip=skip, limit=limit)
 
 @contacts_router.get("/contacts/{contact_id}", response_model=ContactResponse)
 async def get_contact(contact_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Retrieve a single contact by its ID.
+
+    Args:
+        contact_id (int): The ID of the contact to retrieve.
+        db (AsyncSession): The database session to interact with the database.
+
+    Returns:
+        ContactResponse: The contact details for the specified ID.
+    """
     contact_service = ContactService(db)
     return await contact_service.get_contact(contact_id)
 
 @contacts_router.put("/contacts/{contact_id}", response_model=ContactResponse)
 async def update_contact(contact_id: int, contact: ContactCreate, db: AsyncSession = Depends(get_db)):
+    """
+    Update an existing contact's details.
+
+    Args:
+        contact_id (int): The ID of the contact to update.
+        contact (ContactCreate): The updated contact data.
+        db (AsyncSession): The database session to interact with the database.
+
+    Returns:
+        ContactResponse: The updated contact details.
+    """
     contact_service = ContactService(db)
     return await contact_service.update_contact(contact_id, contact)
 
 @contacts_router.delete("/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contact(contact_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Delete a contact by its ID.
+
+    Args:
+        contact_id (int): The ID of the contact to delete.
+        db (AsyncSession): The database session to interact with the database.
+
+    Returns:
+        dict: A message indicating that the contact has been deleted.
+    """
     contact_service = ContactService(db)
     await contact_service.remove_contact(contact_id)
     return {"message": "Contact deleted"}
 
 @contacts_router.get("/contacts/upcoming-birthdays/", response_model=List[ContactResponse])
-async def get_upcoming_birthdays(days: int = 7, db: AsyncSession = Depends(get_db)):
+async def get_upcoming_birthdays(db: AsyncSession = Depends(get_db)):
+    """
+    Retrieve a list of contacts with upcoming birthdays.
+
+    Args:
+        db (AsyncSession): The database session to interact with the database.
+
+    Returns:
+        List[ContactResponse]: A list of contacts with upcoming birthdays.
+    """
     contact_service = ContactService(db)
-    return await contact_service.get_upcoming_birthdays(days)
+    return await contact_service.get_upcoming_birthdays()
