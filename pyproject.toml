@@ -21,7 +21,10 @@ dependencies = [
     "pydantic-settings = ^2.7.1",
     "fastapi-mail = ^1.4.2",
     "slowapi = ^0.1.9",
-    "cloudinary = ^1.42.1"
+    "cloudinary = ^1.42.1",
+    "pytest = *",
+    "pytest-asyncio = *",
+    "redis[async] = *"
 ]
 
 

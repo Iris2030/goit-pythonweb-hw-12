@@ -48,6 +48,8 @@ class UserCreate(UserBase):
         email (str): The email address for the new user.
         password (str): The password for the new user.
     """
+    id: int = 0 
+    avatar: str = "default_avatar.jpg" 
     username: str
     email: str
     password: str

@@ -32,8 +32,8 @@ class ContactBase(BaseModel):
     first_name: str
     last_name: str
     email: str
-    phone_number: str
-    birth_date: date
+    phone_number: Optional[str] = None  
+    birth_date: Optional[date] = None 
 
     class Config:
         from_attributes = True   

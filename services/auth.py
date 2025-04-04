@@ -25,11 +25,13 @@ from fastapi.security import (
 )
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
+import redis.asyncio as redis
 
 from database.db import get_db
 from conf.config import settings
-from services.users import UserService
-
+from services.user import UserService
+from database.redis import get_redis
+import json
 
 class Hash:
     """
@@ -102,28 +104,18 @@ async def create_access_token(data: dict, expires_delta: Optional[int] = None):
     )
     return encoded_jwt
 
+def create_refresh_token(data: dict, expires_delta: timedelta = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + expires_delta
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+    return encoded_jwt
 
 async def get_current_user(
     token: HTTPAuthorizationCredentials = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
+    redis: redis.Redis = Depends(get_redis),
 ):
-    """
-    Get the current user based on the provided token.
-    
-    This function decodes the provided JWT token, extracts the username, and 
-    fetches the corresponding user from the database. If the token is invalid or 
-    the user cannot be found, an exception is raised.
-
-    Args:
-        token (HTTPAuthorizationCredentials): The authorization credentials, typically a JWT.
-        db (Session): The database session used to fetch the user data.
-        
-    Returns:
-        User: The user object associated with the decoded token.
-
-    Raises:
-        HTTPException: If the token is invalid or the user is not found.
-    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -132,18 +124,33 @@ async def get_current_user(
 
     try:
         payload = jwt.decode(
-            token.credentials, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
+            token.credentials,
+            settings.JWT_SECRET,
+            algorithms=[settings.JWT_ALGORITHM],
         )
-        username = payload["sub"]
+        username = payload.get("sub")
         if username is None:
             raise credentials_exception
-    except JWTError as e:
+    except JWTError:
         raise credentials_exception
+
+    cached_user = await redis.get(f"user:{username}")
+    if cached_user:
+        return json.loads(cached_user)
+
     user_service = UserService(db)
     user = await user_service.get_user_by_username(username)
     if user is None:
         raise credentials_exception
-    return user
+
+    user_data = {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+    }
+    await redis.set(f"user:{username}", json.dumps(user_data), ex=3600)  
+
+    return user_data
 
 
 async def get_email_from_token(token: str):

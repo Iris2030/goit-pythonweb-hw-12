@@ -14,16 +14,19 @@ from sqlalchemy.orm import Session
 from typing import List
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from jose import JWTError
+from jose import JWTError,jwt
+import json
+import redis.asyncio as redis
 
 from conf.config import settings
 from schemas.contact import ContactCreate, ContactResponse
 from schemas.user import UserCreate, UserResponse, Token, UserLogin, UserBase
 from services.contact import ContactService
-from services.auth import Hash, create_access_token, get_email_from_token, get_current_user
+from services.auth import Hash, create_access_token, get_email_from_token, get_current_user,create_refresh_token
 from services.email import send_email
-from services.users import UserService, UploadFileService
+from services.user import UserService, UploadFileService
 from database.db import get_db
+from database.redis import get_redis
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -33,9 +36,9 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 contacts_router = APIRouter(prefix="/contacts", tags=["contacts"])
 users_router = APIRouter(prefix="/users", tags=["users"])
 
-app.include_router(auth_router)
-app.include_router(contacts_router)
-app.include_router(users_router)
+app.include_router(auth_router, prefix="/api")
+app.include_router(contacts_router, prefix="/api")
+app.include_router(users_router, prefix="/api")
 
 @users_router.get("/me", response_model=UserBase)
 @limiter.limit("5/minute")
@@ -120,7 +123,7 @@ async def register_user(user_data: UserCreate, request: Request, background_task
     return new_user
 
 @auth_router.post("/login", response_model=Token)
-async def login_user(body: UserLogin, db: Session = Depends(get_db)):
+async def login_user(body: UserLogin, db: Session = Depends(get_db), redis: redis.Redis = Depends(get_redis)):
     """
     Log a user into the system and return an access token.
 
@@ -136,16 +139,52 @@ async def login_user(body: UserLogin, db: Session = Depends(get_db)):
     """
     user_service = UserService(db)
     user = await user_service.get_user_by_email(body.email)
-    if not user or not Hash().verify_password(body.password, user.hashed_password):
+    
+    cached_user = await redis.get(f"user:{user.username}")
+    if cached_user:
+        user = json.loads(cached_user)   
+   
+    if not user or not Hash().verify_password(body.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неправильний логін або пароль",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    access_token = await create_access_token(data={"sub": user["username"]})
+    refresh_token = await create_refresh_token(data={"sub": user["username"]})
 
-    access_token = await create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer"}
+    await redis.set(f"user:{user['username']}", json.dumps(user), ex=3600)  
 
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+@auth_router.post("/refresh", response_model=Token)
+async def refresh_token(refresh_token: str):
+    try:
+        payload = jwt.decode(refresh_token,  settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+            )
+       
+        user = await UserService.get_user_by_username(username)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found"
+            )
+
+        new_access_token = create_access_token(data={"sub": username})
+        return {"access_token": new_access_token, "token_type": "bearer"}
+
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+    
 @auth_router.get("/confirmed_email/{token}")
 async def confirmed_email(token: str, db: Session = Depends(get_db)):
     """
