@@ -15,6 +15,7 @@ Classes:
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional
+from models.models import UserRole
 
 class UserBase(BaseModel):
     """
@@ -34,6 +35,7 @@ class UserBase(BaseModel):
     username: str
     email: EmailStr
     avatar: str
+    role: UserRole
 
 class UserCreate(UserBase):
     """

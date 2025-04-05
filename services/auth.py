@@ -30,6 +30,7 @@ import redis.asyncio as redis
 from database.db import get_db
 from conf.config import settings
 from services.user import UserService
+from models.models import User, UserRole
 from database.redis import get_redis
 import json
 
@@ -152,6 +153,17 @@ async def get_current_user(
 
     return user_data
 
+def get_current_admin_user(current_user: User = Depends(get_current_user)):
+     """
+     Checks if the current user is an admin.
+     """
+     if current_user.role != UserRole.ADMIN:
+         print("The user does not have enough privileges to load AVATAR")
+         raise HTTPException(
+             status_code=status.HTTP_403_FORBIDDEN,
+             detail="The user does not have enough privileges",
+         )
+     return current_user
 
 async def get_email_from_token(token: str):
     """

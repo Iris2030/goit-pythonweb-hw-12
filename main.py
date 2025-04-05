@@ -22,11 +22,12 @@ from conf.config import settings
 from schemas.contact import ContactCreate, ContactResponse
 from schemas.user import UserCreate, UserResponse, Token, UserLogin, UserBase
 from services.contact import ContactService
-from services.auth import Hash, create_access_token, get_email_from_token, get_current_user,create_refresh_token
+from services.auth import Hash, create_access_token, get_email_from_token, get_current_user,create_refresh_token, get_current_admin_user
 from services.email import send_email
 from services.user import UserService, UploadFileService
 from database.db import get_db
 from database.redis import get_redis
+from services.password_reset import PasswordResetService
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -35,10 +36,14 @@ app = FastAPI()
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 contacts_router = APIRouter(prefix="/contacts", tags=["contacts"])
 users_router = APIRouter(prefix="/users", tags=["users"])
+password_router = APIRouter(prefix="/password-reset", tags=["users"])
+from schemas.password_reset import PasswordResetRequest, PasswordResetConfirm
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(contacts_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
+app.include_router(password_router, prefix="/api")
+
 
 @users_router.get("/me", response_model=UserBase)
 @limiter.limit("5/minute")
@@ -55,11 +60,66 @@ async def me(request: Request, user: UserBase = Depends(get_current_user)):
     """
     return user
 
+@password_router.post("/request")
+async def request_password_reset(
+    body: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Initiates the password reset process by generating a reset token and sending it via email.
+
+    Args:
+        body (PasswordResetRequest): The request body containing the user's email.
+        background_tasks (BackgroundTasks): FastAPI background task manager.
+        db (AsyncSession): The database session.
+
+    Raises:
+        HTTPException: If the user with the provided email is not found.
+
+    Returns:
+        dict: A success message.
+    """
+    
+    user_service = UserService(db)
+    user = await user_service.get_user_by_email(body.email)
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    token = await PasswordResetService(db).create_reset_token(user)
+
+    background_tasks.add_task(send_email, user.email, token)
+
+    return {"message": "Password reset instructions have been sent to your email."}
+
+@password_router.post("/confirm")
+async def confirm_password_reset(body: PasswordResetConfirm, db: AsyncSession = Depends(get_db)):
+    """
+    Confirms the password reset by validating the token and setting the new password.
+
+    Args:
+        body (PasswordResetConfirm): The request body containing the reset token and new password.
+        db (AsyncSession): The database session.
+
+    Raises:
+        HTTPException: If the token is invalid or has expired.
+
+    Returns:
+        dict: A success message indicating that the password has been successfully reset.
+    """
+    service = PasswordResetService(db)
+    user = await service.reset_password(body.token, body.new_password)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired token")
+
+    return {"message": "Password successfully reset"}
+
 
 @users_router.patch("/avatar", response_model=UserBase)
 async def update_avatar_user(
     file: UploadFile = File(),
-    user: UserBase = Depends(get_current_user),
+    user: UserBase = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
